@@ -36,6 +36,7 @@
         #proj-canvas { position:absolute; top:0; left:0; width:100%; height:100%; z-index:10000; }
         #proj-text { position:absolute; bottom:10%; width:80%; text-align:center; color:#ff3333; font-size:3.5vw; font-weight:bold; text-shadow:0 0 20px #ff0000; z-index:10001; }
         #close-proj-btn { position:absolute; top:20px; right:20px; z-index:10002; border-color:#ff3333; color:#ff3333; background:transparent;}
+        .audio-status { font-size:0.75em; color:#00ff00; padding:5px 10px; background:rgba(0,255,0,0.1); border-radius:3px; margin-top:5px; }
     </style>
 </head>
 <body>
@@ -99,6 +100,7 @@
                     <button class="action-btn" style="flex:1; margin:0; background:#004400; border-color:#00ff00; color:#00ff00;" onclick="triggerManualGeneration()">2. GENERATE & PLAY</button>
                 </div>
                 <div id="lyrics-display">Data stream offline.</div>
+                <div class="audio-status" id="audio-status">Audio: Ready</div>
             </div>
 
             <div class="module" style="border-color:#ff0055;">
@@ -152,11 +154,26 @@
         let masterOut, modBus, vocBus, carrier, ttsCh, micCh, mediaCh;
         let micInput, mediaAudio, vidEl, mediaNode, activeTonePlayer, activeNativeAudio;
 
+        function updateAudioStatus(msg) {
+            const el = document.getElementById('audio-status');
+            if(el) el.innerText = msg;
+        }
+
         async function powerOn() {
-            try { await Tone.start(); } catch(e) { console.warn("Tone.js fallback required."); }
-            document.getElementById('power-btn').style.display='none'; document.getElementById('main-interface').style.display='block';
+            try { 
+                await Tone.start();
+                updateAudioStatus('Audio: Initialized');
+            } catch(e) { 
+                console.warn("Tone.js fallback required.");
+                updateAudioStatus('Audio: Fallback mode');
+            }
+            document.getElementById('power-btn').style.display='none'; 
+            document.getElementById('main-interface').style.display='block';
             meSpeak.loadConfig("https://cdnjs.cloudflare.com/ajax/libs/mespeak/1.9.7/mespeak_config.json");
-            meSpeak.loadVoice("https://cdnjs.cloudflare.com/ajax/libs/mespeak/1.9.7/voices/en/en.json", () => meSpeakReady=true);
+            meSpeak.loadVoice("https://cdnjs.cloudflare.com/ajax/libs/mespeak/1.9.7/voices/en/en.json", () => {
+                meSpeakReady=true;
+                updateAudioStatus('Audio: Ready (meSpeak)');
+            });
             let dummy = new SpeechSynthesisUtterance(""); window.speechSynthesis.speak(dummy); // Prime Native TV TTS
             initAudio();
         }
@@ -225,6 +242,7 @@
                 ttsCh.disconnect(modBus); micCh.disconnect(modBus); mediaCh.disconnect(modBus);
                 ttsCh.toDestination(); micCh.toDestination(); mediaCh.toDestination();
                 btn.innerText="TURN ON VOCODER"; btn.classList.remove('active');
+                updateAudioStatus('Audio: Vocoder OFF');
             } else {
                 modBus = new Tone.Gain(1); vocBus = new Tone.Gain(1).connect(masterOut);
                 ttsCh.disconnect(); micCh.disconnect(); mediaCh.disconnect();
@@ -240,6 +258,7 @@
                 });
                 startVoc(); Tone.Transport.start(); isVocoderActive=true;
                 btn.innerText="VOCODER ACTIVE"; btn.classList.add('active');
+                updateAudioStatus('Audio: Vocoder ACTIVE');
             }
         }
         document.getElementById('pitchSlider').oninput=e=>{ document.getElementById('pitchDisplay').innerText=e.target.value+' Hz'; if(carrier) carrier.frequency.value=e.target.value; };
@@ -275,51 +294,178 @@
             return `[VERSE 1]\n${v1}\n\n[CHORUS]\n${ch}\n\n[VERSE 2]\n${v2}\n\n[CHORUS]\n${ch}\n\n[END]\nEnd of sequence.`;
         }
 
-        // --- 3-LAYER FALLBACK AUTOPILOT ---
+        // --- 3-LAYER FALLBACK AUTOPILOT (FIXED) ---
         let q = [], isStop = false;
         async function triggerManualGeneration() {
-            try { await initAudio(); } catch(e){} isStop=false;
+            try { await initAudio(); } catch(e){} 
+            isStop=false;
             let s = genSong(document.getElementById('song-topic').value);
             document.getElementById('lyrics-display').innerText = s;
-            emergencyStopInternal(); isStop=false; if(!meSpeakReady) return;
-            q = s.split('\n').filter(l=>l.trim()!=='' && !l.startsWith('[')); procTTS();
+            emergencyStopInternal(); 
+            isStop=false; 
+            if(!meSpeakReady) {
+                updateAudioStatus('Audio: meSpeak not ready, using fallback');
+                return;
+            }
+            q = s.split('\n').filter(l=>l.trim()!=='' && !l.startsWith('[')); 
+            procTTS();
         }
 
         function procTTS() {
             if(isStop) return;
             if(q.length===0){
                 if(document.getElementById('autopilot-toggle').checked){
-                    setTimeout(()=>{ if(isStop)return; let s=genSong(document.getElementById('song-topic').value); document.getElementById('lyrics-display').innerText=s; q=s.split('\n').filter(l=>l.trim()!=='' && !l.startsWith('[')); procTTS(); }, 2000);
+                    setTimeout(()=>{ 
+                        if(isStop)return; 
+                        let s=genSong(document.getElementById('song-topic').value); 
+                        document.getElementById('lyrics-display').innerText=s; 
+                        q=s.split('\n').filter(l=>l.trim()!=='' && !l.startsWith('[')); 
+                        procTTS(); 
+                    }, 2000);
                 } return;
             }
-            let line = q.shift(); document.getElementById('response-box').innerText=`"${line}"`; document.getElementById('proj-text').innerText=line;
-            try {
-                let duri = meSpeak.speak(line, {pitch:30, speed:120, variant:"m1", rawdata:"data-uri"});
-                activeTonePlayer = new Tone.Player({ url: duri, onload: ()=>{ if(isStop)return; activeTonePlayer.connect(ttsCh); activeTonePlayer.start(); }, onstop: ()=>procTTS(), onerror: ()=>fallHTML(duri,line) });
-            } catch(e){ fallHTML(null, line); }
-        }
-        function fallHTML(u, l) {
-            try { if(!u) u=meSpeak.speak(l,{pitch:30,speed:120,variant:"m1",rawdata:"data-uri"}); activeNativeAudio = new Audio(u); activeNativeAudio.onended=()=>procTTS(); activeNativeAudio.play().catch(e=>{
-                let ut = new SpeechSynthesisUtterance(l); ut.pitch=0.8; ut.rate=0.9; ut.onend=()=>procTTS(); window.speechSynthesis.speak(ut);
-            }); } catch(e){ setTimeout(()=>procTTS(), 1000); }
+            let line = q.shift(); 
+            document.getElementById('response-box').innerText=`"${line}"`; 
+            document.getElementById('proj-text').innerText=line;
+            
+            // CRITICAL: Ensure Tone context is running
+            if(Tone.context.state !== 'running') {
+                Tone.start().then(() => playTTSLine(line)).catch(e => {
+                    console.error("Tone start error:", e);
+                    fallHTML(null, line);
+                });
+            } else {
+                playTTSLine(line);
+            }
         }
 
-        function emergencyStopInternal() { isStop=true; q=[]; window.speechSynthesis.cancel(); if(activeTonePlayer)activeTonePlayer.stop(); if(activeNativeAudio){activeNativeAudio.pause(); activeNativeAudio.currentTime=0;} }
-        function emergencyStop() { emergencyStopInternal(); document.getElementById('autopilot-toggle').checked=false; document.getElementById('response-box').innerText='"ABORTED."'; if(mRec && mRec.state==="recording") toggleRecording(); }
+        function playTTSLine(line) {
+            try {
+                let duri = meSpeak.speak(line, {pitch:30, speed:120, variant:"m1", rawdata:"data-uri"});
+                
+                // Create new Tone.Player for this line
+                activeTonePlayer = new Tone.Player({
+                    url: duri,
+                    onload: () => {
+                        if(isStop) return;
+                        // FIXED: ALWAYS connect to ttsCh (which routes through vocoder or effects)
+                        activeTonePlayer.connect(ttsCh);
+                        activeTonePlayer.start();
+                        updateAudioStatus('Audio: TTS Playing');
+                    },
+                    onstop: () => {
+                        updateAudioStatus('Audio: TTS Stopped');
+                        procTTS();
+                    },
+                    onerror: (err) => {
+                        console.warn("Tone.Player error, falling back:", err);
+                        fallHTML(duri, line);
+                    }
+                });
+            } catch(e) {
+                console.warn("meSpeak error:", e);
+                fallHTML(null, line);
+            }
+        }
+
+        function fallHTML(u, l) {
+            try {
+                // Generate audio if not provided
+                if(!u) u = meSpeak.speak(l, {pitch:30, speed:120, variant:"m1", rawdata:"data-uri"});
+                
+                // First try: Create native Audio and connect to Tone via metering
+                activeNativeAudio = new Audio(u);
+                activeNativeAudio.onended = () => {
+                    updateAudioStatus('Audio: Native audio ended');
+                    procTTS();
+                };
+                activeNativeAudio.onerror = () => {
+                    console.warn("Native audio error, using Web Speech API");
+                    fallWebSpeech(l);
+                };
+                
+                activeNativeAudio.play().catch(e => {
+                    console.warn("Native audio play failed:", e);
+                    fallWebSpeech(l);
+                });
+                updateAudioStatus('Audio: Native fallback');
+            } catch(e) {
+                console.warn("fallHTML error:", e);
+                fallWebSpeech(l);
+            }
+        }
+
+        function fallWebSpeech(l) {
+            try {
+                let ut = new SpeechSynthesisUtterance(l);
+                ut.pitch = 0.8;
+                ut.rate = 0.9;
+                ut.onend = () => {
+                    updateAudioStatus('Audio: Web Speech ended');
+                    procTTS();
+                };
+                ut.onerror = (e) => {
+                    console.error("Web Speech error:", e);
+                    setTimeout(() => procTTS(), 1000);
+                };
+                window.speechSynthesis.speak(ut);
+                updateAudioStatus('Audio: Web Speech API');
+            } catch(e) {
+                console.error("Web Speech fallback failed:", e);
+                setTimeout(() => procTTS(), 1000);
+            }
+        }
+
+        function emergencyStopInternal() { 
+            isStop=true; 
+            q=[]; 
+            window.speechSynthesis.cancel(); 
+            if(activeTonePlayer) {
+                try { activeTonePlayer.stop(); } catch(e) {}
+            }
+            if(activeNativeAudio){
+                activeNativeAudio.pause(); 
+                activeNativeAudio.currentTime=0;
+            }
+            updateAudioStatus('Audio: Stopped');
+        }
+        function emergencyStop() { 
+            emergencyStopInternal(); 
+            document.getElementById('autopilot-toggle').checked=false; 
+            document.getElementById('response-box').innerText='"ABORTED."'; 
+            if(mRec && mRec.state==="recording") toggleRecording(); 
+        }
 
         // --- RECORDING ---
         let mRec, chnks=[];
         async function toggleRecording() {
             const b = document.getElementById('record-btn');
-            if(mRec && mRec.state==="recording"){ mRec.stop(); b.innerText="START RECORDING"; b.classList.remove('recording'); } 
+            if(mRec && mRec.state==="recording"){ 
+                mRec.stop(); 
+                b.innerText="START RECORDING"; 
+                b.classList.remove('recording'); 
+            } 
             else {
-                await initAudio(); chnks=[]; const aD=Tone.context.createMediaStreamDestination(); masterOut.connect(aD);
-                let cS = projActive ? projCanvas.captureStream(30) : bgCtx.canvas.captureStream(30);
+                await initAudio(); 
+                chnks=[]; 
+                const aD=Tone.context.createMediaStreamDestination(); 
+                masterOut.connect(aD);
+                let cS = projActive ? document.getElementById('proj-canvas').captureStream(30) : bgCtx.canvas.captureStream(30);
                 mRec = new MediaRecorder(new MediaStream([...cS.getVideoTracks(), ...aD.stream.getAudioTracks()]), {mimeType:'video/webm'});
                 mRec.ondataavailable=e=>{if(e.data.size>0)chnks.push(e.data);};
                 mRec.onstop=()=>{
-                    const u = URL.createObjectURL(new Blob(chnks,{type:'video/webm'})); const a=document.createElement('a'); a.style.display='none'; a.href=u; a.download='cylon_matrix.webm'; document.body.appendChild(a); a.click(); setTimeout(()=>window.URL.revokeObjectURL(u),100);
-                }; mRec.start(); b.innerText="STOP & SAVE RECORDING"; b.classList.add('recording');
+                    const u = URL.createObjectURL(new Blob(chnks,{type:'video/webm'})); 
+                    const a=document.createElement('a'); 
+                    a.style.display='none'; 
+                    a.href=u; 
+                    a.download='cylon_matrix.webm'; 
+                    document.body.appendChild(a); 
+                    a.click(); 
+                    setTimeout(()=>window.URL.revokeObjectURL(u),100);
+                }; 
+                mRec.start(); 
+                b.innerText="STOP & SAVE RECORDING"; 
+                b.classList.add('recording');
             }
         }
     </script>
