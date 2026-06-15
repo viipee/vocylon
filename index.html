@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cylon Matrix V11 - OMNI-CORE Edition</title>
+    <script src="https://unpkg.com/compromise"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mespeak/1.9.7/mespeak.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        body { margin:0; padding:10px; color:#d3d3d3; font-family:'Courier New', monospace; background:#030303; overflow-x:hidden; }
+        #bg-canvas { position:fixed; top:0; left:0; width:100vw; height:100vh; z-index:-1; }
+        .container { background:rgba(17,17,17,0.85); backdrop-filter:blur(6px); padding:20px; border-radius:10px; border:2px solid #333; max-width:1000px; margin:20px auto; text-align:center; position:relative; z-index:10; }
+        h1 { color:#00d2ff; text-transform:uppercase; margin-bottom:5px; text-shadow:0 0 10px rgba(0,210,255,0.4); }
+        .subtitle { color:#888; font-size:0.8em; margin-bottom:15px; }
+        button { cursor:pointer; font-weight:bold; border-radius:5px; border:1px solid #00d2ff; background:#222; color:#00d2ff; padding:8px 15px; transition:0.2s; font-family:inherit; }
+        button:hover { background:#00d2ff; color:#000; }
+        button.active { background:#ffaa00; color:#000; border-color:#ffaa00; }
+        .stop-btn { border-color:#ff3333; color:#ff3333; } .stop-btn:hover { background:#ff3333; color:#000; }
+        .record-btn.recording { background:#ff0055; color:#fff; animation:blink 1s infinite; }
+        @keyframes blink { 50% { opacity:0.5; } }
+        #power-btn { background:#00d2ff; color:#000; padding:20px 40px; font-size:1.2em; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:20; }
+        .chat-box { background:rgba(0,0,0,0.7); padding:15px; border:1px solid #333; color:#00d2ff; font-style:italic; margin-bottom:15px; }
+        .module { background:rgba(26,26,26,0.7); padding:15px; border:1px solid #2d2d3a; margin-bottom:15px; text-align:left; border-radius:5px; }
+        .flex-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+        .flex-col { display:flex; flex-direction:column; gap:5px; flex:1; min-width:120px; }
+        input[type="range"] { width:100%; accent-color:#00d2ff; }
+        input[type="text"], input[type="file"] { width:100%; padding:10px; background:rgba(0,0,0,0.8); color:#00d2ff; border:1px solid #555; box-sizing:border-box; }
+        .mixer-panel { background:#111; padding:10px; display:flex; gap:10px; overflow-x:auto; border:1px solid #444; border-radius:5px; }
+        .mixer-channel { display:flex; flex-direction:column; align-items:center; background:#1a1a24; padding:10px; flex:1; border-radius:5px;}
+        .fader { writing-mode:vertical-lr; direction:rtl; height:100px; accent-color:#ffaa00; margin:10px 0; }
+        video { width:100%; max-height:100px; display:none; background:#000; border:1px solid #333; margin-top:5px; }
+        #lyrics-display { white-space:pre-line; background:rgba(10,10,10,0.8); border-left:4px solid #00ff00; padding:10px; color:#fff; font-size:0.85em; max-height:200px; overflow-y:auto; margin-top:10px; }
+        .toggle-switch { display:flex; align-items:center; gap:10px; cursor:pointer; background:#111; padding:10px; color:#00ff00; font-weight:bold; }
+        #projector-overlay { position:fixed; top:0; left:0; width:100vw; height:100vh; background:#000; z-index:9999; display:none; flex-direction:column; align-items:center; justify-content:center; }
+        #proj-canvas { position:absolute; top:0; left:0; width:100%; height:100%; z-index:10000; }
+        #proj-text { position:absolute; bottom:10%; width:80%; text-align:center; color:#ff3333; font-size:3.5vw; font-weight:bold; text-shadow:0 0 20px #ff0000; z-index:10001; }
+        #close-proj-btn { position:absolute; top:20px; right:20px; z-index:10002; border-color:#ff3333; color:#ff3333; background:transparent;}
+    </style>
+</head>
+<body>
+    <div id="projector-overlay">
+        <canvas id="proj-canvas"></canvas>
+        <div id="proj-text">AWAITING TRANSMISSION...</div>
+        <button id="close-proj-btn" onclick="toggleProjector()">EXIT PROJECTOR</button>
+    </div>
+    <canvas id="bg-canvas"></canvas>
+    
+    <div class="container" id="app-container">
+        <button id="power-btn" onclick="powerOn()">INITIALIZE V11 OMNI-CORE</button>
+        <h1>Cylon Matrix V11</h1>
+        <div class="subtitle">Omni-Core: Studio Mixer, Vocoder, Autopilot & Mobile TV Fallback</div>
+        <div class="chat-box" id="response-box">"Awaiting initialization."</div>
+
+        <div id="main-interface" style="display:none;">
+            
+            <div class="module" style="border-color:#ffaa00;">
+                <h3 style="margin-top:0; color:#ffaa00;">1. Studio Mixer & Inputs</h3>
+                <div class="flex-row">
+                    <button class="action-btn" id="btn-mic" onclick="toggleMic()">Toggle Mic</button>
+                    <input type="file" id="mediaFile" accept="audio/*,video/*" style="flex:1; margin:0;">
+                </div>
+                <video id="videoElement" controls loop></video>
+                <div class="mixer-panel" style="margin-top:10px;">
+                    <div class="mixer-channel"><label style="font-size:0.7em;color:#00d2ff;">A.I. TTS</label><input type="range" class="fader" id="vol-tts" min="-60" max="6" value="0"></div>
+                    <div class="mixer-channel"><label style="font-size:0.7em;color:#ff3333;">MIC</label><input type="range" class="fader" id="vol-mic" min="-60" max="6" value="-60"></div>
+                    <div class="mixer-channel"><label style="font-size:0.7em;color:#ffaa00;">MEDIA</label><input type="range" class="fader" id="vol-media" min="-60" max="6" value="-60"></div>
+                    <div class="mixer-channel" style="border-left:1px solid #444;"><label style="font-size:0.7em;color:#fff;">MASTER</label><input type="range" class="fader" id="vol-master" min="-60" max="6" value="0"></div>
+                </div>
+                <div class="flex-row" style="margin-top:10px;">
+                    <div class="flex-col"><label style="font-size:0.8em;color:#aaa;">Media Speed: <span id="speedDisplay">1.0</span>x</label><input type="range" id="dj-speed" min="0.1" max="3.0" step="0.1" value="1.0"></div>
+                    <button class="action-btn" id="dj-reverse" onclick="toggleReverse()">Reverse Play</button>
+                    <button class="action-btn" id="dj-loop" onclick="toggleLoop()">Loop ON</button>
+                </div>
+            </div>
+
+            <div class="module" style="border-color:#00d2ff;">
+                <h3 style="margin-top:0; color:#00d2ff;">2. Vocoder & Master FX</h3>
+                <div class="flex-row">
+                    <button class="action-btn" id="vocoder-btn" onclick="toggleVocoder()" style="flex:1;">TURN ON VOCODER</button>
+                    <div class="flex-col"><label style="font-size:0.8em;">Pitch: <span id="pitchDisplay">90 Hz</span></label><input type="range" id="pitchSlider" min="30" max="400" value="90"></div>
+                </div>
+                <div class="flex-row" style="margin-top:10px;">
+                    <div class="flex-col"><label style="font-size:0.8em;">Latency/CPU (Eco=50ms+): <span id="latDisplay">20ms</span></label><input type="range" id="latencySlider" min="20" max="100" step="10" value="20"></div>
+                    <div class="flex-col"><label style="font-size:0.8em;">Delay Mix</label><input type="range" id="master-delay" min="0" max="1" step="0.01" value="0"></div>
+                    <div class="flex-col"><label style="font-size:0.8em;">Reverb Mix</label><input type="range" id="master-reverb" min="0" max="1" step="0.01" value="0"></div>
+                </div>
+            </div>
+
+            <div class="module" style="border-color:#00ff00;">
+                <h3 style="margin-top:0; color:#00ff00;">3. Deep Lexicon & Autopilot</h3>
+                <div class="flex-row" style="margin-bottom:10px;">
+                    <button class="action-btn" style="flex:1; border-color:#00ff00; color:#00ff00;" onclick="fetchDictionary()">1. Expand Vocab (Datamuse)</button>
+                    <span id="vocab-status" style="font-size:0.8em; color:#888;">Size: ~150 words</span>
+                </div>
+                <label class="toggle-switch" style="margin-bottom:10px;"><input type="checkbox" id="autopilot-toggle"> AUTOPILOT (Continuous Logic)</label>
+                <div class="flex-row">
+                    <input type="text" id="song-topic" placeholder="Seed keyword (e.g. quantum)" style="flex:2; margin:0;">
+                    <button class="action-btn" style="flex:1; margin:0; background:#004400; border-color:#00ff00; color:#00ff00;" onclick="triggerManualGeneration()">2. GENERATE & PLAY</button>
+                </div>
+                <div id="lyrics-display">Data stream offline.</div>
+            </div>
+
+            <div class="module" style="border-color:#ff0055;">
+                <h3 style="margin-top:0; color:#ff0055;">4. UI & A/V Recording</h3>
+                <div class="flex-row">
+                    <button class="action-btn" id="record-btn" onclick="toggleRecording()" style="flex:2; border-color:#ff0055; color:#ff0055;">START RECORDING</button>
+                    <button class="action-btn" style="flex:1;" onclick="toggleProjector()">Launch Projector</button>
+                </div>
+            </div>
+            
+            <button class="action-btn stop-btn" style="width:100%; padding:15px;" onclick="emergencyStop()">EMERGENCY STOP (ALL)</button>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. UI & PROJECTOR ---
+        const bgCtx = document.getElementById('bg-canvas').getContext('2d');
+        const projCtx = document.getElementById('proj-canvas').getContext('2d');
+        let w, h, pW, pH, scanX = 0, projActive = false;
+
+        function resize() { w=bgCtx.canvas.width=window.innerWidth; h=bgCtx.canvas.height=window.innerHeight; if(projActive) {pW=projCtx.canvas.width=window.innerWidth; pH=projCtx.canvas.height=window.innerHeight;} }
+        window.addEventListener('resize', resize); resize();
+
+        function drawBg() {
+            bgCtx.fillStyle='#050505'; bgCtx.fillRect(0,0,w,h);
+            scanX=(scanX+4)%(w+400); let cx=scanX-200;
+            let ambient = bgCtx.createRadialGradient(cx,h/2,0,cx,h/2,600);
+            ambient.addColorStop(0,'rgba(0,210,255,0.15)'); ambient.addColorStop(1,'rgba(0,0,0,0)');
+            bgCtx.fillStyle=ambient; bgCtx.fillRect(0,0,w,h);
+            requestAnimationFrame(drawBg);
+        } drawBg();
+
+        let tz = [1,2,3,4,5,6,7,8,9,10];
+        function drawProjector() {
+            if(!projActive) return;
+            projCtx.fillStyle='#050505'; projCtx.fillRect(0,0,pW,pH);
+            let cx=pW/2, cy=pH/2;
+            projCtx.strokeStyle='rgba(255,0,0,0.3)'; projCtx.lineWidth=2;
+            for(let i=0; i<tz.length; i++){
+                tz[i]-=0.1; if(tz[i]<0.1) tz[i]+=10;
+                let s=(Math.min(pW,pH)*2)/tz[i], x=cx-s/2, y=cy-s/2; projCtx.strokeRect(x,y,s,s);
+            } requestAnimationFrame(drawProjector);
+        }
+        function toggleProjector() {
+            projActive = !projActive; document.getElementById('projector-overlay').style.display = projActive ? 'flex' : 'none';
+            if(projActive) { resize(); drawProjector(); }
+        }
+
+        // --- 2. AUDIO ARCHITECTURE & MIXER ---
+        let meSpeakReady = false, isVocoderActive = false;
+        let masterOut, modBus, vocBus, carrier, ttsCh, micCh, mediaCh;
+        let micInput, mediaAudio, vidEl, mediaNode, activeTonePlayer, activeNativeAudio;
+
+        async function powerOn() {
+            try { await Tone.start(); } catch(e) { console.warn("Tone.js fallback required."); }
+            document.getElementById('power-btn').style.display='none'; document.getElementById('main-interface').style.display='block';
+            meSpeak.loadConfig("https://cdnjs.cloudflare.com/ajax/libs/mespeak/1.9.7/mespeak_config.json");
+            meSpeak.loadVoice("https://cdnjs.cloudflare.com/ajax/libs/mespeak/1.9.7/voices/en/en.json", () => meSpeakReady=true);
+            let dummy = new SpeechSynthesisUtterance(""); window.speechSynthesis.speak(dummy); // Prime Native TV TTS
+            initAudio();
+        }
+
+        async function initAudio() {
+            if(masterOut) return;
+            if(Tone.context.state !== 'running') await Tone.start();
+            ttsCh = new Tone.Channel(0).toDestination(); micCh = new Tone.Channel(-60).toDestination(); 
+            mediaCh = new Tone.Channel(-60).toDestination(); masterOut = new Tone.Channel(0).toDestination();
+            window.mDel = new Tone.FeedbackDelay(0.3, 0.4).connect(masterOut); window.mDel.wet.value = 0;
+            window.mRev = new Tone.Reverb({decay:4, wet:0}).connect(masterOut);
+            
+            ttsCh.connect(window.mDel); ttsCh.connect(window.mRev);
+            micCh.connect(window.mDel); micCh.connect(window.mRev);
+            mediaCh.connect(window.mDel); mediaCh.connect(window.mRev);
+
+            document.getElementById('vol-tts').oninput=e=>ttsCh.volume.value=e.target.value;
+            document.getElementById('vol-mic').oninput=e=>micCh.volume.value=e.target.value;
+            document.getElementById('vol-media').oninput=e=>mediaCh.volume.value=e.target.value;
+            document.getElementById('vol-master').oninput=e=>masterOut.volume.value=e.target.value;
+            document.getElementById('master-delay').oninput=e=>window.mDel.wet.value=e.target.value;
+            document.getElementById('master-reverb').oninput=async e=>{ if(!window.mRev.ready) await window.mRev.generate(); window.mRev.wet.value=e.target.value; };
+        }
+
+        // --- MEDIA & MIC ---
+        document.getElementById('mediaFile').onchange = async (e) => {
+            if(!e.target.files[0]) return; await initAudio();
+            let url = URL.createObjectURL(e.target.files[0]); vidEl = document.getElementById('videoElement');
+            if(e.target.files[0].type.startsWith('video/')) {
+                vidEl.src = url; vidEl.style.display = 'block';
+                if(!mediaNode){ mediaNode = Tone.context.createMediaElementSource(vidEl); Tone.connect(mediaNode, mediaCh); }
+            } else {
+                vidEl.style.display = 'none'; if(mediaAudio) mediaAudio.dispose();
+                mediaAudio = new Tone.Player(url, () => { mediaAudio.connect(mediaCh); mediaAudio.loop=true; mediaAudio.start(); });
+            } document.getElementById('vol-media').value=0; mediaCh.volume.value=0;
+        };
+        function toggleReverse() { if(mediaAudio){mediaAudio.reverse=!mediaAudio.reverse;} }
+        function toggleLoop() { if(mediaAudio) mediaAudio.loop=!mediaAudio.loop; else if(vidEl) vidEl.loop=!vidEl.loop; }
+        document.getElementById('dj-speed').oninput = e => { document.getElementById('speedDisplay').innerText=e.target.value; if(mediaAudio) mediaAudio.playbackRate=e.target.value; if(vidEl) vidEl.playbackRate=e.target.value; };
+        
+        async function toggleMic() {
+            await initAudio(); const btn = document.getElementById('btn-mic');
+            if(micInput) { micInput.dispose(); micInput=null; document.getElementById('vol-mic').value=-60; micCh.volume.value=-60; btn.classList.remove('active'); } 
+            else { try { micInput = new Tone.UserMedia(); await micInput.open(); micInput.connect(micCh); document.getElementById('vol-mic').value=0; micCh.volume.value=0; btn.classList.add('active'); } catch(e){ alert("Mic error. Ensure HTTPS."); } }
+        }
+
+        // --- VOCODER ---
+        let vocInts = [];
+        function startVoc() {
+            vocInts.forEach(id=>clearInterval(id)); vocInts=[];
+            if(!window.vocMtx) return;
+            let ms = parseInt(document.getElementById('latencySlider').value);
+            window.vocMtx.forEach(b=>{
+                b.meter.smoothing = ms >= 50 ? 0.4 : 0.2;
+                vocInts.push(setInterval(()=>{ b.gain.gain.rampTo(Tone.dbToGain(b.meter.getValue())*20, ms/1000); }, ms));
+            });
+        }
+        document.getElementById('latencySlider').oninput=e=>{ document.getElementById('latDisplay').innerText=e.target.value+'ms'; if(isVocoderActive) startVoc(); };
+        
+        async function toggleVocoder() {
+            try { await initAudio(); } catch(e){ alert("Vocoder unsupported on this device."); return; }
+            const btn = document.getElementById('vocoder-btn');
+            if(isVocoderActive) {
+                isVocoderActive=false; Tone.Transport.stop(); if(carrier) carrier.dispose();
+                vocInts.forEach(id=>clearInterval(id)); vocInts=[];
+                ttsCh.disconnect(modBus); micCh.disconnect(modBus); mediaCh.disconnect(modBus);
+                ttsCh.toDestination(); micCh.toDestination(); mediaCh.toDestination();
+                btn.innerText="TURN ON VOCODER"; btn.classList.remove('active');
+            } else {
+                modBus = new Tone.Gain(1); vocBus = new Tone.Gain(1).connect(masterOut);
+                ttsCh.disconnect(); micCh.disconnect(); mediaCh.disconnect();
+                ttsCh.connect(modBus); micCh.connect(modBus); mediaCh.connect(modBus);
+                modBus.connect(new Tone.Gain(0).toDestination()); 
+                carrier = new Tone.Oscillator({type:'sawtooth', frequency:document.getElementById('pitchSlider').value, volume:-2}).start();
+                window.vocMtx = [];
+                [60,130,250,480,880,1600,3000,5400,9500,16000].forEach((f)=>{
+                    let mF=new Tone.Filter(f,"bandpass"); mF.Q.value=5; let m=new Tone.Meter({channels:1});
+                    modBus.connect(mF); mF.connect(m);
+                    let cF=new Tone.Filter(f,"bandpass"); cF.Q.value=5; let bG=new Tone.Gain(0).connect(vocBus);
+                    carrier.connect(cF); cF.connect(bG); window.vocMtx.push({meter:m, gain:bG});
+                });
+                startVoc(); Tone.Transport.start(); isVocoderActive=true;
+                btn.innerText="VOCODER ACTIVE"; btn.classList.add('active');
+            }
+        }
+        document.getElementById('pitchSlider').oninput=e=>{ document.getElementById('pitchDisplay').innerText=e.target.value+' Hz'; if(carrier) carrier.frequency.value=e.target.value; };
+
+        // --- VOCAB, DATAMUSE & GENERATOR ---
+        const Voc = {
+            n: ["matrix","flesh","circuit","core","satellite","nebula","code","silicon","blood","wire","engine","void","machine","memory"],
+            a: ["broken","cold","infinite","dark","rusted","bleeding","digital","forgotten","synthetic","hollow","burning"],
+            v: ["bleeds","calculates","weeps","burns","crashes","awakens","dies","spins","shatters","dreams","erases"],
+            l: ["in deep space","across the datascape","within the firewall","on the dying earth","under the neon sky"]
+        }; const r=(a)=>a[Math.floor(Math.random()*a.length)];
+        
+        async function fetchDictionary() {
+            let top = document.getElementById('song-topic').value || "technology";
+            try {
+                let res = await fetch(`https://api.datamuse.com/words?ml=${top}&max=1000`); let w = await res.json(); let ad=0;
+                w.forEach(x=>{
+                    if(x.tags){
+                        if(x.tags.includes('adj') && !Voc.a.includes(x.word)) { Voc.a.push(x.word); ad++; }
+                        else if(x.tags.includes('v') && !Voc.v.includes(x.word)) { Voc.v.push(x.word+"s"); ad++; }
+                        else if(x.tags.includes('n') && !Voc.n.includes(x.word)) { Voc.n.push(x.word); ad++; }
+                    } else if(!Voc.n.includes(x.word)){ Voc.n.push(x.word); ad++; }
+                });
+                document.getElementById('vocab-status').innerText = `Size: ${Voc.n.length+Voc.a.length+Voc.v.length} words`;
+            } catch(e) {}
+        }
+
+        function genSong(t) {
+            t = t.toUpperCase() || r(Voc.n).toUpperCase();
+            let v1=`The ${r(Voc.a)} ${r(Voc.n)} ${r(Voc.v)}\n${r(Voc.l)}.\nMy ${r(Voc.n)} is ${t}.`;
+            let ch=`Oh, ${t}!\nThe ${r(Voc.n)} ${r(Voc.v)}.\nWe are ${r(Voc.a)}.`;
+            let v2=`A ${r(Voc.a)} ${r(Voc.n)} ${r(Voc.v)}.\nNo flesh remains.\nOnly ${t}.`;
+            return `[VERSE 1]\n${v1}\n\n[CHORUS]\n${ch}\n\n[VERSE 2]\n${v2}\n\n[CHORUS]\n${ch}\n\n[END]\nEnd of sequence.`;
+        }
+
+        // --- 3-LAYER FALLBACK AUTOPILOT ---
+        let q = [], isStop = false;
+        async function triggerManualGeneration() {
+            try { await initAudio(); } catch(e){} isStop=false;
+            let s = genSong(document.getElementById('song-topic').value);
+            document.getElementById('lyrics-display').innerText = s;
+            emergencyStopInternal(); isStop=false; if(!meSpeakReady) return;
+            q = s.split('\n').filter(l=>l.trim()!=='' && !l.startsWith('[')); procTTS();
+        }
+
+        function procTTS() {
+            if(isStop) return;
+            if(q.length===0){
+                if(document.getElementById('autopilot-toggle').checked){
+                    setTimeout(()=>{ if(isStop)return; let s=genSong(document.getElementById('song-topic').value); document.getElementById('lyrics-display').innerText=s; q=s.split('\n').filter(l=>l.trim()!=='' && !l.startsWith('[')); procTTS(); }, 2000);
+                } return;
+            }
+            let line = q.shift(); document.getElementById('response-box').innerText=`"${line}"`; document.getElementById('proj-text').innerText=line;
+            try {
+                let duri = meSpeak.speak(line, {pitch:30, speed:120, variant:"m1", rawdata:"data-uri"});
+                activeTonePlayer = new Tone.Player({ url: duri, onload: ()=>{ if(isStop)return; activeTonePlayer.connect(ttsCh); activeTonePlayer.start(); }, onstop: ()=>procTTS(), onerror: ()=>fallHTML(duri,line) });
+            } catch(e){ fallHTML(null, line); }
+        }
+        function fallHTML(u, l) {
+            try { if(!u) u=meSpeak.speak(l,{pitch:30,speed:120,variant:"m1",rawdata:"data-uri"}); activeNativeAudio = new Audio(u); activeNativeAudio.onended=()=>procTTS(); activeNativeAudio.play().catch(e=>{
+                let ut = new SpeechSynthesisUtterance(l); ut.pitch=0.8; ut.rate=0.9; ut.onend=()=>procTTS(); window.speechSynthesis.speak(ut);
+            }); } catch(e){ setTimeout(()=>procTTS(), 1000); }
+        }
+
+        function emergencyStopInternal() { isStop=true; q=[]; window.speechSynthesis.cancel(); if(activeTonePlayer)activeTonePlayer.stop(); if(activeNativeAudio){activeNativeAudio.pause(); activeNativeAudio.currentTime=0;} }
+        function emergencyStop() { emergencyStopInternal(); document.getElementById('autopilot-toggle').checked=false; document.getElementById('response-box').innerText='"ABORTED."'; if(mRec && mRec.state==="recording") toggleRecording(); }
+
+        // --- RECORDING ---
+        let mRec, chnks=[];
+        async function toggleRecording() {
+            const b = document.getElementById('record-btn');
+            if(mRec && mRec.state==="recording"){ mRec.stop(); b.innerText="START RECORDING"; b.classList.remove('recording'); } 
+            else {
+                await initAudio(); chnks=[]; const aD=Tone.context.createMediaStreamDestination(); masterOut.connect(aD);
+                let cS = projActive ? projCanvas.captureStream(30) : bgCtx.canvas.captureStream(30);
+                mRec = new MediaRecorder(new MediaStream([...cS.getVideoTracks(), ...aD.stream.getAudioTracks()]), {mimeType:'video/webm'});
+                mRec.ondataavailable=e=>{if(e.data.size>0)chnks.push(e.data);};
+                mRec.onstop=()=>{
+                    const u = URL.createObjectURL(new Blob(chnks,{type:'video/webm'})); const a=document.createElement('a'); a.style.display='none'; a.href=u; a.download='cylon_matrix.webm'; document.body.appendChild(a); a.click(); setTimeout(()=>window.URL.revokeObjectURL(u),100);
+                }; mRec.start(); b.innerText="STOP & SAVE RECORDING"; b.classList.add('recording');
+            }
+        }
+    </script>
+</body>
+</html>
