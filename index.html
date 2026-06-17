@@ -41,6 +41,34 @@
 <script src="ios-audio-fix.js"></script>
 </head>
 <body>
+   <h1>My Audio Program</h1>
+    <button id="play-btn">Play Sound</button>
+    <button id="rec-btn">Record 3 Seconds</button>
+
+    <script>
+        // --- PLAYBACK CODE ---
+        document.getElementById('play-btn').addEventListener('click', () => {
+            // Use 'window.globalAudioCtx' which was created inside ios-audio-fix.js
+            const oscillator = window.globalAudioCtx.createOscillator();
+            oscillator.connect(window.globalAudioCtx.destination);
+            
+            oscillator.start();
+            oscillator.stop(window.globalAudioCtx.currentTime + 0.5); // plays for 0.5 seconds
+        });
+
+        // --- RECORDING CODE ---
+        document.getElementById('rec-btn').addEventListener('click', async () => {
+            // Call the 'easyRecord' function from ios-audio-fix.js
+            const recording = await window.easyRecord(3000); 
+            
+            if (recording) {
+                // Play back what you just recorded
+                const playback = new Audio(recording.audioUrl);
+                playback.play();
+            }
+        });
+    </script>
+    
     <div id="projector-overlay">
         <canvas id="proj-canvas"></canvas>
         <div id="proj-text">AWAITING TRANSMISSION...</div>
