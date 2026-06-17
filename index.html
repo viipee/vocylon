@@ -59,7 +59,7 @@
         // --- RECORDING CODE ---
         document.getElementById('rec-btn').addEventListener('click', async () => {
             // Call the 'easyRecord' function from ios-audio-fix.js
-            const recording = await window.easyRecord(3000); 
+            const recording = await window.easyRecord(3600000); 
             
             if (recording) {
                 // Play back what you just recorded
